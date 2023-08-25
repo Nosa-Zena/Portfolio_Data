@@ -1,5 +1,5 @@
 --Data source: https://8weeksqlchallenge.com/case-study-2/
---using PostgreSQL 13
+--Dialect: PostgreSQL 13
 
 --Questions
 
@@ -181,3 +181,114 @@ WHERE
   ro."cancellation" IS NULL
 GROUP BY
   ro."runner_id";
+
+
+--Is there any relationship between the number of pizzas and how long the order takes to prepare?
+
+SELECT
+  co."order_id",
+  COUNT(co."pizza_id") AS pizzas_number,
+  AVG(EXTRACT(EPOCH FROM ro."pickup_time"::timestamp - co."order_time"::timestamp) / 60) AS avg_prep_time_minutes
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.runner_orders ro ON co."order_id" = ro."order_id"
+WHERE
+  ro."cancellation" IS NULL
+GROUP BY
+  co."order_id"
+ORDER BY
+  pizzas_number;
+
+--What was the average distance travelled for each customer?
+
+SELECT
+  co."customer_id",
+  AVG(CAST(SUBSTRING(ro."distance" FROM '(\d+\.\d+)') AS DECIMAL)) AS avg_distance
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.runner_orders ro ON co."order_id" = ro."order_id"
+WHERE
+  ro."cancellation" IS NULL
+GROUP BY
+  co."customer_id"
+ORDER BY
+  co."customer_id";
+
+
+
+--What was the difference between the longest and shortest delivery times for all orders?
+WITH delivery_times AS (
+  SELECT
+    co."order_id",
+    EXTRACT(EPOCH FROM ro."pickup_time"::timestamp - co."order_time"::timestamp) / 60 AS delivery_time_minutes
+  FROM
+    pizza_runner.customer_orders co
+  JOIN
+    pizza_runner.runner_orders ro ON co."order_id" = ro."order_id"
+  WHERE
+    ro."cancellation" IS NULL
+)
+SELECT
+  MAX(delivery_time_minutes) AS max_delivery_time_minutes,
+  MIN(delivery_time_minutes) AS min_delivery_time_minutes,
+  MAX(delivery_time_minutes) - MIN(delivery_time_minutes) AS difference_minutes
+FROM
+  delivery_times;
+
+
+--What was the average speed for each runner for each delivery and do you notice any trend for these values?
+WITH delivery_speeds AS (
+  SELECT
+    ro."runner_id",
+    ro."order_id",
+    CASE
+      WHEN ro."duration" ~ '^\d+(\.\d+)? minutes?$' THEN 
+        CAST(SUBSTRING(ro."duration" FROM '^\d+(\.\d+)?') AS DECIMAL)
+      ELSE NULL
+    END AS duration_minutes,
+    CAST(SUBSTRING(ro."distance" FROM '^\d+(\.\d+)?') AS DECIMAL) AS distance_km
+  FROM
+    pizza_runner.runner_orders ro
+  WHERE
+    ro."cancellation" IS NULL
+)
+SELECT
+  ds."runner_id",
+  ds."order_id",
+  ds."distance_km",
+  ds."duration_minutes",
+  CASE
+    WHEN ds."duration_minutes" IS NOT NULL THEN
+      ds."distance_km" / ds."duration_minutes"
+    ELSE NULL
+  END AS avg_speed_kmh
+FROM
+  delivery_speeds ds;
+
+
+--What is the successful delivery percentage for each runner?
+
+WITH delivery_counts AS (
+  SELECT
+    "runner_id",
+    COUNT("order_id") AS total_deliveries,
+    SUM(CASE WHEN "cancellation" IS NULL THEN 1 ELSE 0 END) AS successful_deliveries
+  FROM
+    pizza_runner.runner_orders
+  GROUP BY
+    "runner_id"
+)
+SELECT
+  dc."runner_id",
+  dc.total_deliveries,
+  dc.successful_deliveries,
+  (dc.successful_deliveries::DECIMAL / dc.total_deliveries) * 100 AS successful_delivery_percentage
+FROM
+  delivery_counts dc;
+
+
+
+
+
