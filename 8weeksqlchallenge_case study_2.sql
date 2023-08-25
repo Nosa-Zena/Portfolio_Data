@@ -290,5 +290,14 @@ FROM
 
 
 
+-- C.Ingredient Optimisation--
 
+--What are the standard ingredients for each pizza?
+SELECT
+  pn."pizza_name",
+  pr."toppings"
+FROM
+  pizza_runner.pizza_names pn
+JOIN
+  pizza_runner.pizza_recipes pr ON pn."pizza_id" = pr."pizza_id";
 
