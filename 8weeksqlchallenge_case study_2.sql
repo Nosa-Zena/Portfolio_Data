@@ -301,3 +301,117 @@ FROM
 JOIN
   pizza_runner.pizza_recipes pr ON pn."pizza_id" = pr."pizza_id";
 
+
+--What was the most commonly added extra?
+SELECT
+  pt."topping_name",
+  COUNT(*) AS topping_count
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_recipes pr ON co."pizza_id" = pr."pizza_id"
+JOIN
+  pizza_runner.pizza_toppings pt ON co."extras" LIKE '%' || pt."topping_id" || '%'
+WHERE
+  co."extras" IS NOT NULL
+GROUP BY
+  pt."topping_name"
+ORDER BY
+  topping_count DESC
+LIMIT 1;
+
+
+--What was the most common exclusion?
+SELECT
+  "exclusions",
+  COUNT(*) AS exclusion_count
+FROM
+  pizza_runner.customer_orders
+WHERE
+  "exclusions" IS NOT NULL
+GROUP BY
+  "exclusions"
+ORDER BY
+  exclusion_count DESC
+LIMIT 1;
+
+
+
+--Generate an order item for each record in the customers_orders table in the format of one of the following:
+
+--Meat Lovers
+--Meat Lovers - Exclude Beef
+--Meat Lovers - Extra Bacon
+--Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers
+
+
+SELECT
+  co."order_id",
+  CASE
+    WHEN pr."toppings" IS NULL THEN pn."pizza_name"
+    ELSE
+      pn."pizza_name"
+      || CASE WHEN co."exclusions" IS NOT NULL THEN ' - Exclude ' || REPLACE(co."exclusions", ', ', ',')
+              ELSE ''
+         END
+      || CASE WHEN co."extras" IS NOT NULL THEN ' - Extra ' || REPLACE(co."extras", ', ', ',')
+              ELSE ''
+         END
+  END AS order_item
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_names pn ON co."pizza_id" = pn."pizza_id"
+LEFT JOIN
+  pizza_runner.pizza_recipes pr ON co."pizza_id" = pr."pizza_id";
+
+
+
+--Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+--For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"
+  SELECT
+  co."order_id",
+  pn."pizza_name"
+  || ': '
+  || STRING_AGG(
+       CASE
+         WHEN pt."topping_id"::TEXT IN (SELECT UNNEST(string_to_array(co."exclusions", ', '))) THEN pt."topping_name"
+         ELSE '2x' || pt."topping_name"
+       END,
+       ', ' ORDER BY pt."topping_name"
+     ) AS ingredient_list
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_names pn ON co."pizza_id" = pn."pizza_id"
+JOIN
+  pizza_runner.pizza_recipes pr ON co."pizza_id" = pr."pizza_id"
+JOIN
+  pizza_runner.pizza_toppings pt ON pt."topping_id"::TEXT = ANY(string_to_array(pr."toppings", ', '))
+GROUP BY
+  co."order_id", pn."pizza_name"
+ORDER BY
+
+
+--What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+
+SELECT
+  pt."topping_name" AS ingredient,
+  COUNT(*) AS total_quantity
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_recipes pr ON co."pizza_id" = pr."pizza_id"
+JOIN
+  pizza_runner.pizza_toppings pt ON pt."topping_id"::TEXT = ANY(string_to_array(pr."toppings", ', '))
+WHERE
+  co."extras" IS NULL
+  AND co."order_id" NOT IN (SELECT "order_id" FROM pizza_runner.runner_orders WHERE "cancellation" IS NOT NULL)
+GROUP BY
+  pt."topping_name"
+ORDER BY
+  total_quantity DESC;
+
+
+
+
