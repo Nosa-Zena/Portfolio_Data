@@ -412,6 +412,208 @@ GROUP BY
 ORDER BY
   total_quantity DESC;
 
+--D. Pricing and Ratings
 
+
+--If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+
+SELECT
+  SUM(
+    CASE
+      WHEN pn."pizza_name" = 'Meatlovers' THEN 12
+      WHEN pn."pizza_name" = 'Vegetarian' THEN 10
+      ELSE 0
+    END
+  ) AS total_revenue
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_names pn ON co."pizza_id" = pn."pizza_id"
+WHERE
+  co."order_id" NOT IN (SELECT "order_id" FROM pizza_runner.runner_orders WHERE "cancellation" IS NOT NULL);
+
+
+--What if there was an additional $1 charge for any pizza extras?
+
+SELECT
+  SUM(
+    CASE
+      WHEN pn."pizza_name" = 'Meatlovers' THEN (12 + 1 * (LENGTH(co."extras") - LENGTH(REPLACE(co."extras", ',', ''))))
+      WHEN pn."pizza_name" = 'Vegetarian' THEN (10 + 1 * (LENGTH(co."extras") - LENGTH(REPLACE(co."extras", ',', ''))))
+      ELSE 0
+    END
+  ) AS total_revenue
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_names pn ON co."pizza_id" = pn."pizza_id"
+WHERE
+  co."order_id" NOT IN (SELECT "order_id" FROM pizza_runner.runner_orders WHERE "cancellation" IS NOT NULL);
+
+--The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset - 
+--generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.
+
+DROP TABLE IF EXISTS customer_ratings;
+  CREATE TABLE customer_ratings (
+  "rating_id" SERIAL PRIMARY KEY,
+  "order_id" INTEGER NOT NULL,
+  "runner_id" INTEGER NOT NULL,
+  "customer_id" INTEGER NOT NULL,
+  "rating" INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  "comment" TEXT,
+  "rating_time" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO customer_ratings ("order_id", "runner_id", "customer_id", "rating", "comment")
+VALUES
+  (1, 1, 101, 4, 'Good service'),
+  (1, 1, 104, 3, 'Nice delivery!!'),  
+  (2, 1, 101, 5, 'Excellent delivery!'),
+  (3, 1, 102, 3, 'Average delivery'),
+  (4, 2, 103, 5, 'Great runner!'),
+  (4, 3, 102, 4, 'Awesome service'),
+  (5, 3, 104, 4, 'Fast and friendly');
+
+
+--Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+--customer_id
+--order_id
+--runner_id
+--rating
+--order_time
+--pickup_time
+--Time between order and pickup
+--Delivery duration
+--Average speed
+--Total number of pizzas
+
+SELECT
+  co."customer_id",
+  co."order_id",
+  ro."runner_id",
+  cr."rating",
+  co."order_time",
+  ro."pickup_time",
+  EXTRACT(EPOCH FROM (ro."pickup_time"::timestamp - co."order_time"::timestamp)) / 60 AS "time_between_order_and_pickup",
+  ro."duration",
+  CASE
+    WHEN ro."distance" ~ E'^\\d+\\.\\d+$' THEN (ro."distance"::numeric / NULLIF(ro."duration"::numeric, 0))
+    ELSE NULL
+  END AS "average_speed",
+  COUNT(co."pizza_id") AS "total_pizzas"
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.runner_orders ro ON co."order_id" = ro."order_id"
+JOIN
+  pizza_runner.customer_ratings cr ON co."order_id" = cr."order_id"
+WHERE
+  ro."cancellation" IS NULL
+  AND ro."distance" ~ E'^\\d+\\.\\d+$' -- Check for numeric distance
+GROUP BY
+  co."customer_id",
+  co."order_id",
+  ro."runner_id",
+  cr."rating",
+  co."order_time",
+  ro."pickup_time",
+  ro."duration",
+  ro."distance";
+
+
+
+--If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled-
+-- how much money does Pizza Runner have left over after these deliveries?
+
+SELECT
+  SUM(CASE
+    WHEN pn."pizza_name" = 'Meatlovers' THEN 12
+    WHEN pn."pizza_name" = 'Vegetarian' THEN 10
+    ELSE 0
+  END) AS "total_revenue",
+  SUM(CASE
+    WHEN ro."distance" ~ E'^\\d+\\.\\d+$' THEN (ro."distance"::numeric * 0.30)
+    ELSE 0
+  END) AS "total_runner_expenses",
+  SUM(CASE
+    WHEN pn."pizza_name" = 'Meatlovers' THEN 12
+    WHEN pn."pizza_name" = 'Vegetarian' THEN 10
+    ELSE 0
+  END) - SUM(CASE
+    WHEN ro."distance" ~ E'^\\d+\\.\\d+$' THEN (ro."distance"::numeric * 0.30)
+    ELSE 0
+  END) AS "profit"
+FROM
+  pizza_runner.customer_orders co
+JOIN
+  pizza_runner.pizza_names pn ON co."pizza_id" = pn."pizza_id"
+LEFT JOIN
+  pizza_runner.runner_orders ro ON co."order_id" = ro."order_id"
+WHERE
+  ro."cancellation" IS NULL;
+
+
+--E. Bonus Questions
+
+--If Danny wants to expand his range of pizzas - how would this impact the existing data design? Write an INSERT statement to- 
+  --demonstrate what would happen if a new Supreme pizza with all the toppings was added to the Pizza Runner menu?
+
+DROP TABLE IF EXISTS pizza_names;
+CREATE TABLE pizza_names (
+  "pizza_id" INTEGER,
+  "pizza_name" TEXT
+);
+INSERT INTO pizza_names
+  ("pizza_id", "pizza_name")
+VALUES
+  (1, 'Meatlovers'),
+  (2, 'Vegetarian'),
+  (3, 'Supreme');
+
+DROP TABLE IF EXISTS pizza_recipes;
+CREATE TABLE pizza_recipes (
+  "pizza_id" INTEGER,
+  "toppings" TEXT
+);
+INSERT INTO pizza_recipes
+  ("pizza_id", "toppings")
+VALUES
+  (1, '1, 2, 3, 4, 5, 6, 8, 10'),
+  (2, '4, 6, 7, 9, 11, 12'),
+  (3, '1,2,3,4,5,6,7,8,9,10,11,12');
+
+
+DROP TABLE IF EXISTS customer_orders;
+CREATE TABLE customer_orders (
+  "order_id" INTEGER,
+  "customer_id" INTEGER,
+  "pizza_id" INTEGER,
+  "exclusions" VARCHAR(4),
+  "extras" VARCHAR(4),
+  "order_time" TIMESTAMP
+);
+
+INSERT INTO customer_orders
+  ("order_id", "customer_id", "pizza_id", "exclusions", "extras", "order_time")
+VALUES
+  ('1', '101', '1', '', '', '2020-01-01 18:05:02'),
+  ('2', '101', '1', '', '', '2020-01-01 19:00:52'),
+  ('3', '102', '1', '', '', '2020-01-02 23:51:23'),
+  ('3', '102', '2', '', NULL, '2020-01-02 23:51:23'),
+  ('4', '103', '1', '4', '', '2020-01-04 13:23:46'),
+  ('4', '103', '1', '4', '', '2020-01-04 13:23:46'),
+  ('4', '103', '2', '4', '', '2020-01-04 13:23:46'),
+  ('5', '104', '1', 'null', '1', '2020-01-08 21:00:29'),
+  ('6', '101', '2', 'null', 'null', '2020-01-08 21:03:13'),
+  ('7', '105', '2', 'null', '1', '2020-01-08 21:20:29'),
+  ('8', '102', '1', 'null', 'null', '2020-01-09 23:54:33'),
+  ('9', '103', '1', '4', '1, 5', '2020-01-10 11:22:59'),
+  ('10', '104', '1', 'null', 'null', '2020-01-11 18:34:49'),
+  ('10', '102', '3', 'null' , 'null', '2020-01-12 19:45:00'),
+  ('10', '104', '1', '2, 6', '1, 4', '2020-01-11 18:34:49');
+
+--Add the "Supreme" pizza to the menu by inserting a new record in the "pizza_names" table. 
+--Then, we define all the toppings for the "Supreme" pizza in the "pizza_recipes" table. Finally, we add an order for the new "Supreme" pizza to the "customer_orders" table.
+--This demonstrates how the existing data design can accommodate the addition of new pizza options to the menu.
 
 
